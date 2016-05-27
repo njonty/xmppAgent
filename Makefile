@@ -1,13 +1,13 @@
 CC=gcc
 CFLAGS=-I.
-OBJ = xmppagent.o xmppagent.o 
+OBJ = xmppAgent.o
 
 LIBS=-lstrophe
 
 %.o: %.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS)
 
-xmppagent: $(OBJ)
+xmppAgent: $(OBJ)
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
 clean:
-	rm -f *.o xmppagent
+	rm -f *.o xmppAgent

@@ -194,57 +194,19 @@ fflush(0);
 }
 
 
-void send_xmsg(char *xbuf, int bufLen )
-{
-    int sockfd, portno, serverlen,n, i;
+int recv_xmsg( int sockfd,char *xbuf, int bufLen  )
+{ 
     struct sockaddr_in serveraddr;
+    int portno, serverlen,n, i;
     x_msg_hdr *hdr;
 
-	printf("\npkt size : %d ", bufLen);
-for(i=0; i < bufLen; i++)
-{
-	printf(" %02x",*( xbuf+i));
-}
-fflush(0);
-//return;
-    /* socket: create the socket */
-    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0) 
-    {
-        error("ERROR opening socket");
-	return;
-    }
-    /* build the server's Internet address */
-    bzero((char *) &serveraddr, sizeof(serveraddr));
-//printf("test1");
-//fflush(0);   
- 
-    serveraddr.sin_family = AF_INET;
-//printf(" test2");
-//fflush(0);   
- 
-     inet_aton("127.0.0.1", &serveraddr.sin_addr.s_addr);
-
-//printf(" test3");
-//fflush(0);   
- 
-    serveraddr.sin_port = htons(reversePort);
-   /* send the message to the server */
-    serverlen = sizeof(serveraddr);
-    n = sendto(sockfd, xbuf, bufLen, 0, &serveraddr, serverlen);
-    if (n < 0) 
-      error("ERROR in sendto");
-
-printf("\nbytes sent : %d", n);
-fflush(0);    
-
-
     /* print the server's reply */
-
     n = recvfrom(sockfd, xbuf, 1024, 0, &serveraddr, &serverlen);
     if (n < 0) 
-      error("ERROR in recvfrom");
-
+    {
+      	error("ERROR in recvfrom");
+	return -1;
+    }
 printf("\nbytes sent : %d", n);
 fflush(0);    
 
@@ -269,9 +231,51 @@ fflush(0);
 	     	stanza_reply(status,to ,id ,uname,pwd);
 	}
     }
+    return 0;
+}
 
+void send_xmsg(char *xbuf, int bufLen )
+{
+    int sockfd, portno, serverlen,n, i;
+    struct sockaddr_in serveraddr;
+    x_msg_hdr *hdr;
 
-   	
+    printf("\npkt size : %d ", bufLen);
+
+for(i=0; i < bufLen; i++)
+{
+	printf(" %02x",*( xbuf+i));
+}
+fflush(0);
+    /* socket: create the socket */
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) 
+    {
+        error("ERROR opening socket");
+	return;
+    }
+    /* build the server's Internet address */
+    bzero((char *) &serveraddr, sizeof(serveraddr));
+ 
+    serveraddr.sin_family = AF_INET;
+ 
+    inet_aton("127.0.0.1", &serveraddr.sin_addr.s_addr);
+
+    serveraddr.sin_port = htons(reversePort);
+   /* send the message to the server */
+    serverlen = sizeof(serveraddr);
+    n = sendto(sockfd, xbuf, bufLen, 0, &serveraddr, serverlen);
+    if (n < 0) 
+    {
+      	error("ERROR in sendto");
+	return -1;
+    }
+printf("\nbytes sent : %d", n);
+fflush(0);    
+
+    //now pend on recv
+    recv_xmsg(sockfd ,xbuf ,bufLen );
+
     return;
 }
 

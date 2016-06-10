@@ -1,8 +1,8 @@
 CC=gcc
-CFLAGS=-I.
-OBJ = xmppAgent.o
+CFLAGS=-I. -DOPENWRT
+OBJ = suci.o xmppAgent.o 
 
-LIBS=-lstrophe
+LIBS=-lstrophe -lpthread -luci
 
 %.o: %.c $(DEPS)
 	$(CC) -c -o $@ $< $(CFLAGS)

@@ -8,14 +8,22 @@
 #ifdef OPENWRT
 #include <uci.h>
 #include "suci.h"
+
 #endif
+#include <sys/ioctl.h>    // SIOCGIFFLAGS
+#include <errno.h>        // errno
+#include <netinet/in.h>   // IPPROTO_IP
+#include <net/if.h>       // IFF_*, ifreq
 
 xmpp_conn_t *conn;
 xmpp_ctx_t *ctx;
 #define XMPP_NS_CR "urn:broadband-forum-org:cwmp:xmppConnReq-1-0"
 #define XMPP_NS_CR_STZ "urn:ietf:params:xml:ns:xmpp-stanzas"
+#define SEND_UCI_TO_CLI "/oneagent/senducitocli"
+#define XMPP_CON "foo."
 
-int reversePort=0;
+int reversePort=0, instance;
+
 #define X_OPTION_HDR_SZ 2 //8 bytes
 #define X_MSG_HDR_SZ 2 //8 bytes
 
@@ -37,7 +45,8 @@ crid : type 3
 typedef enum _REQ_TYPE
 {
 	CR_REQ = 0,
-	CR_RESP
+	CR_RESP,
+	JID_NOTIF
 }REQ_TYPE;
 
 typedef struct _x_msg_hdr
@@ -53,7 +62,8 @@ typedef enum _X_OPTION_TYPE
 	X_PASSWORD,
 	X_CRID,
 	X_FROM,
-	X_STATUS
+	X_STATUS,
+	X_JID
 }X_OPTION_TYPE;
 
 typedef struct _x_msg_option
@@ -76,6 +86,7 @@ typedef struct _send_info {
 
 void x_get_CR_header(char* xMsg,x_msg_hdr **hdr  );
 char* x_get_option(X_OPTION_TYPE opType , char *xMsg );
+int x_change_value_connection(const char *cmd, char *state, char*inform);
 
 
 void stanza_reply(char *errstr, char* to, char *id, char *username, char*password )
@@ -234,7 +245,7 @@ fflush(0);
     return 0;
 }
 
-void send_xmsg(char *xbuf, int bufLen )
+int send_xmsg(char *xbuf, int bufLen )
 {
     int sockfd, portno, serverlen,n, i;
     struct sockaddr_in serveraddr;
@@ -252,7 +263,7 @@ fflush(0);
     if (sockfd < 0) 
     {
         error("ERROR opening socket");
-	return;
+	return -1;
     }
     /* build the server's Internet address */
     bzero((char *) &serveraddr, sizeof(serveraddr));
@@ -273,15 +284,21 @@ fflush(0);
 printf("\nbytes sent : %d", n);
 fflush(0);    
 
-    //now pend on recv
-    recv_xmsg(sockfd ,xbuf ,bufLen );
-
-    return;
+    return sockfd;
 }
 
-void send_xmsg_thread( void *info)
+void *send_xmsg_thread( void *info)
 {
-	send_xmsg(((send_info*)info)->xMsg, ((send_info*)info)->xbufLen );	
+	int sockfd=0;
+
+	sockfd=send_xmsg(((send_info*)info)->xMsg, ((send_info*)info)->xbufLen );
+
+	if(sockfd <= 0)
+		return;
+	else
+	    recv_xmsg(sockfd , ((send_info*)info)->xMsg, ((send_info*)info)->xbufLen );
+
+	close(sockfd);
 }
 
 
@@ -338,11 +355,11 @@ fflush(0);
 
 
 
-void x_build_CR_header(char* xMsg )
+void x_build_X_header(char* xMsg, REQ_TYPE rtype )
 {
  	x_msg_hdr *hdr= ( x_msg_hdr * ) xMsg;
 
-	hdr->type = CR_REQ;
+	hdr->type = rtype;
 	hdr->len=0;
 	return;
 }
@@ -356,16 +373,29 @@ void x_get_CR_header(char* xMsg,x_msg_hdr **hdr  )
 
 
 
-int create_cr_req_msg(char *xMsg ,char *username, char *password, char *id, const char* from)
+int create_cr_req_msg(char *xMsg ,char *username, char *password, const char *id, const char* from)
 {
 	x_msg_option *opt;
 	int len;
 
-	x_build_CR_header(xMsg );
+	x_build_X_header(xMsg,CR_REQ );
 	x_add_option(X_USERNAME, xMsg, username );
 	x_add_option(X_PASSWORD, xMsg, password );
 	x_add_option(X_CRID, xMsg,id );
 	x_add_option(X_FROM, xMsg,from );
+
+	return ((x_msg_hdr *) xMsg)->len + X_MSG_HDR_SZ ;
+}
+
+
+int create_jid_msg(char *xMsg ,const char *jid,const char *status)
+{
+	x_msg_option *opt;
+	int len;
+printf("\n Sending JID : %s", jid);
+	x_build_X_header(xMsg,JID_NOTIF );
+	x_add_option(X_JID, xMsg, jid );
+	x_add_option(X_STATUS, xMsg, status );
 
 	return ((x_msg_hdr *) xMsg)->len + X_MSG_HDR_SZ ;
 }
@@ -470,54 +500,45 @@ int cr_handler(xmpp_conn_t * const conn, xmpp_stanza_t * const stanza, void * co
 	info->userdata = userdata;
 
 	cr_handler_thread((void*)info );
-/*	
-	iret = pthread_create( &thread1, NULL, cr_handler_thread, (void*) info);
-     	if(iret)
-     	{
-        	printf(stderr,"Error - pthread_create() return code: %d\n",iret);
-         	exit(EXIT_FAILURE);
-     	}
-*/
-//	printf("Incoming message from %s: %s\n", xmpp_stanza_get_from(stanza), unameStr);
-
-//	xmpp_stanza_release(cr);
-//	xmpp_stanza_release(username);
-//	xmpp_stanza_release(pwd);
-#if 0
-	reply = xmpp_stanza_reply(stanza);
-
-	if (xmpp_stanza_get_type(reply) == NULL)
-	    xmpp_stanza_set_type(reply, "chat");
-
-	body = xmpp_stanza_new(ctx);
-	xmpp_stanza_set_name(body, "body");
-	replytext = (char *) malloc(strlen(" to you too!") + 1);
-
-	strcpy(replytext, " to you too!");
-	
-	text = xmpp_stanza_new(ctx);
-
-	xmpp_stanza_set_name(text, "replytext");
-
-	xmpp_stanza_add_child(body, text);
-	xmpp_stanza_add_child(reply, body);
-	xmpp_stanza_release(body);
-	xmpp_stanza_release(text);
-
-//        xmpp_stanza_to_text(reply,&buf,&len );
-//        xmpp_debug(conn->ctx,"xmpp","Outgoing message from %s: %s\n", xmpp_stanza_get_from(stanza), buf);
-fflush(0);	
-
-//xmpp_debug(conn->ctx, "xmpp", "proceeding with TLS");
-
-	xmpp_send(conn, reply);
-//	xmpp_stanza_release(reply);
-//	free(replytext);
-#endif
 	return 1;
 }
 
+int x_change_value_connection(const char *cmd, char *state, char*inform)
+{
+	int ret;
+	char prevVal[1024]={0};
+	ret = do_uci_get(cmd, prevVal);
 
+	if(ret == 0)
+	{
+		if(strcmp(cmd,prevVal ) == 0)
+			return 0;
+	}
+	printf("Setting [%s][%s]",cmd,state );
+
+	ret = do_uci_set(cmd, state);
+
+    	if(ret)
+    	{
+		printf("Error XMPP:Setting the status");
+		//kill itself
+		return -1;
+    	}
+
+    	ret = do_uci_commit("foo");
+    	if(ret)
+    	{
+		//kill itself
+		return -1;
+    	}
+
+     	// inform tr-069 of status change
+	sprintf(cmd,"%s http://127.0.0.1:1234/value/change/ \"name=Device.XMPP.Connection.%d.%s&value=%s\"", SEND_UCI_TO_CLI ,instance,inform ,state );
+
+    	system(cmd);
+
+	return 0;
+}
 
 
 /* define a handler for connection events */
@@ -526,20 +547,65 @@ void conn_handler(xmpp_conn_t * const conn, const xmpp_conn_event_t status,
 		  void * const userdata)
 {
     xmpp_ctx_t *ctx = (xmpp_ctx_t *)userdata;
+    char *xMsg=malloc(1024),cmd[256];
+    int xbufLen;
+    
 
     if (status == XMPP_CONN_CONNECT) {
 	xmpp_stanza_t* pres;
+	int sockfd,ret;
+	char *jid = xmpp_conn_get_bound_jid(conn);
+
 	fprintf(stderr, "DEBUG: connected\n");
+
+	sprintf(cmd,"%s%d.Status",XMPP_CON, instance );
+	x_change_value_connection(cmd ,"enabled", "Status");
 	xmpp_handler_add(conn,cr_handler, NULL, "iq", NULL, ctx);
-	
+
 	/* Send initial <presence/> so that we appear online to contacts */
 	pres = xmpp_stanza_new(ctx);
 	xmpp_stanza_set_name(pres, "presence");
 	xmpp_send(conn, pres);
 	xmpp_stanza_release(pres);
+
+	//now send JID and status to TR-69 agent
+#if 0
+	xbufLen = create_jid_msg(xMsg,xmpp_conn_get_bound_jid(conn) , "connected" );
+	
+	sockfd=send_xmsg(xMsg, xbufLen );
+
+        if(sockfd <= 0)
+	       	fprintf(stderr, "DEBUG: send xmsg failed (JID)\n");
+
+	close(sockfd );
+#endif
+	sprintf(cmd,"%s%d.JabberID",XMPP_CON, instance );
+        x_change_value_connection(cmd , jid, "JabberID");
+/*
+        ret = do_uci_set(cmd, jid);
+  	if(ret)
+    	{
+		printf("Error XMPP:Setting the JID");
+		//kill itself
+		return;
+    	}
+
+    	ret = do_uci_commit("foo");
+    	if(ret)
+    	{
+		//kill itself
+		return;
+    	}
+
+       	sprintf(cmd,"%s http://127.0.0.1:1234/value/change/ \"name=Device.XMPP.Connection.%d.JabberID&value=%s\"", SEND_UCI_TO_CLI ,instance ,jid );
+	system(cmd);
+*/
     }
     else {
-	fprintf(stderr, "DEBUG: disconnected\n");
+	fprintf(stderr, "DEBUG: disconnected error : %d\n",error);
+//	sprintf(cmd,"%s%d.Status",XMPP_CON, instance );
+//	x_change_value_connection(cmd ,"enabled", "Status");
+
 	xmpp_stop(ctx);
     }
 }
@@ -582,7 +648,25 @@ void 	x_generate_jid(char *local,char *domain,char *resource,char *jid )
 }
 
 
+int checkLink(char *ifname) {
+    int state = -1;
+    int socId = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (socId < 0) printf("Socket failed. Errno = %d\n", errno);
 
+    struct ifreq if_req;
+    (void) strncpy(if_req.ifr_name, ifname, sizeof(if_req.ifr_name));
+    int rv = ioctl(socId, SIOCGIFFLAGS, &if_req);
+    close(socId);
+
+    if ( rv == -1) printf("Ioctl failed. Errno = %d\n", errno);
+
+    if( (if_req.ifr_flags & IFF_UP) && (if_req.ifr_flags & IFF_RUNNING))
+	return 1; //enabled
+    else if( if_req.ifr_flags & IFF_UP)
+	return 2; //dormant
+    else
+    	return 0;
+}
 
 
 
@@ -590,18 +674,43 @@ void 	x_generate_jid(char *local,char *domain,char *resource,char *jid )
 int main(int argc, char **argv)
 {
     xmpp_log_t *log;
-    char jid[1024], *pass[128], *alias,*port,cmd[128]={0},local[256]={0},domain[256]={0},resource[256]={0}, port_str[256]={0},pid_str[32];
-    int instance,connection=0,ret=0,pid;
+    char jid[1024], pass[128], *alias,*port,cmd[128]={0},local[256]={0},domain[256]={0},resource[256]={0}, port_str[256]={0},pid_str[32],state[32]="disabled";
+    int connection=0,ret=0,pid,linkState=0;
     /* take a jid and password on the command line */
     if (argc != 2 && argc != 4) {
 	fprintf(stderr, "Usage: xmppAgent <alias>\n\n");
 	return 1;
     }
-  
-    instance = atoi(argv[1]);
-
-//    instance = x_get_instance(alias);
  
+//    if (fork() == 0) { 
+    instance = atoi(argv[1]);
+printf("\n checking the link status");
+//    instance = x_get_instance(alias);
+	//check wan state
+    while(0/*strcmp(state,"connecting")*/ )
+    {
+	linkState=checkLink("eth0");
+    	sprintf(cmd,"%s%d.Status",XMPP_CON, instance );
+
+	if(linkState==1 )
+        	x_change_value_connection(cmd ,"connecting", "Status");
+    	else if(linkState==2 )
+	{
+        	x_change_value_connection(cmd ,"dormant", "Status");
+		sleep(30);
+	}
+    	else
+	{
+		x_change_value_connection(cmd ,"disabled", "Status");
+		sleep(30);
+	}
+    	sprintf(cmd,"%s%d.Status",XMPP_CON, instance);
+    	do_uci_get( cmd, state);
+	printf("\n test 1 %s",state );
+
+    }
+printf("\n test 2");
+
     if( argc == 2)
     {
 #ifdef OPENWRT
@@ -658,10 +767,12 @@ int main(int argc, char **argv)
     	reversePort = atoi(argv[3] );
     }
 
+    
     pid = getpid();
     sprintf(cmd,"foo.%d.clientpid",instance);
     sprintf(pid_str,"%d",pid);
-
+sleep(30);
+#if 1
     ret = do_uci_set( cmd, pid_str);
     if(ret)
     {
@@ -674,7 +785,7 @@ int main(int argc, char **argv)
     {
    	 exit(1);
     }
-
+#endif
 
     /* init library */
     xmpp_initialize();
@@ -712,6 +823,7 @@ printf("\n Connecting the client");
 
     /* final shutdown of the library */
     xmpp_shutdown();
-
+// }//fork
     return 0;
+  
 }

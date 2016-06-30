@@ -7,7 +7,7 @@
 #include <netinet/in.h>
 #ifdef OPENWRT
 #include <uci.h>
-#include "suci.h"
+#include "xuci.h"
 
 #endif
 #include <sys/ioctl.h>    // SIOCGIFFLAGS

@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "suci.h"
+#include "xuci.h"
 
 static struct uci_context *ctx;
 static const char *delimiter = " ";

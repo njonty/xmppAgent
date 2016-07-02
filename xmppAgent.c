@@ -20,7 +20,8 @@ xmpp_ctx_t *ctx;
 #define XMPP_NS_CR "urn:broadband-forum-org:cwmp:xmppConnReq-1-0"
 #define XMPP_NS_CR_STZ "urn:ietf:params:xml:ns:xmpp-stanzas"
 #define SEND_UCI_TO_CLI "/oneagent/senducitocli"
-#define XMPP_CON "foo."
+#define XMPP_CON "xmpp-connection."
+#define X_CONNECTION "xmpp-connection"
 
 int reversePort=0, instance;
 
@@ -525,7 +526,7 @@ int x_change_value_connection(const char *cmd, char *state, char*inform)
 		return -1;
     	}
 
-    	ret = do_uci_commit("foo");
+    	ret = do_uci_commit(X_CONNECTION);
     	if(ret)
     	{
 		//kill itself
@@ -590,7 +591,7 @@ void conn_handler(xmpp_conn_t * const conn, const xmpp_conn_event_t status,
 		return;
     	}
 
-    	ret = do_uci_commit("foo");
+    	ret = do_uci_commit(X_CONNECTION);
     	if(ret)
     	{
 		//kill itself
@@ -715,7 +716,7 @@ printf("\n test 2");
     {
 #ifdef OPENWRT
 
-	sprintf(cmd,"foo.%d.Username",instance);
+	sprintf(cmd,X_CONNECTION".%d.Username",instance);
        	ret = do_uci_get( cmd, local);
 	if(ret)
 	{
@@ -723,13 +724,13 @@ printf("\n test 2");
 		exit(1);
 	}
 
-	sprintf(cmd,"foo.%d.Resource",instance);
+	sprintf(cmd,X_CONNECTION".%d.Resource",instance);
        	ret = do_uci_get( cmd, resource);
 	if(ret)
 	{
 		printf("XMPP: No Resource part");
 	}
-	sprintf(cmd,"foo.%d.Domain",instance);
+	sprintf(cmd,X_CONNECTION".%d.Domain",instance);
        	ret = do_uci_get( cmd, domain);
 	if(ret)
 	{
@@ -737,7 +738,7 @@ printf("\n test 2");
 		exit(1);
 	}
 
-	sprintf(cmd,"foo.%d.Password",instance);
+	sprintf(cmd,X_CONNECTION".%d.Password",instance);
        	ret = do_uci_get( cmd, pass);
 	if(ret)
 	{
@@ -747,7 +748,7 @@ printf("\n test 2");
 
 	x_generate_jid(local,domain,resource,jid );
 
-       	ret = do_uci_get( "xmpp.1.port", port_str);
+       	ret = do_uci_get( "xmpp.comm.port", port_str);
 	if(ret)
 	{
 		printf("XMPP: No reverse port");
@@ -769,7 +770,7 @@ printf("\n test 2");
 
     
     pid = getpid();
-    sprintf(cmd,"foo.%d.clientpid",instance);
+    sprintf(cmd,X_CONNECTION".%d.clientpid",instance);
     sprintf(pid_str,"%d",pid);
 sleep(30);
 #if 1
@@ -780,7 +781,7 @@ sleep(30);
 	exit(1);
     }
 
-    ret = do_uci_commit("foo");
+    ret = do_uci_commit(X_CONNECTION);
     if(ret)
     {
    	 exit(1);
